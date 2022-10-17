@@ -6,7 +6,7 @@ import zmq
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
 REQUEST_TIMEOUT = 2500
-REQUEST_RETRIES = 3
+REQUEST_RETRIES = 10
 SERVER_ENDPOINT = "tcp://localhost:5555"
 
 if __name__ == '__main__':
@@ -24,8 +24,8 @@ client.connect(SERVER_ENDPOINT)
 client_id = "luke"
 topics = {
     "news": {
-        "msg_last_id": 1,
-        "pub_count": 1,
+        "msg_last_id": -1,
+        "pub_count": 0,
     },
     "football": {
         "msg_last_id": -1,
@@ -55,7 +55,7 @@ def put_res(topic_id, response):
             return -1
         # TODO: What to do here?
         logging.error("Put unsuccessful, count mismatch. Updating count")
-        topics[topic_id]["pub_count"] = response[1]
+        topics[topic_id]["pub_count"] = int(response[1])
         return -3
     logging.error("Malformed reply from server: %s", ' '.join(response))
     return -1
@@ -70,14 +70,26 @@ def get_res(topic_id, response):
         topics[topic_id]["msg_last_id"] += 1
         logging.info("Successful get")
         print("Message: " + response[2])
-    elif response[0] == 'e':
+        return 0
+    if response[0] == 'e':
         if response[1] == "ns":
             logging.warning(
                 "Tried to send get command for topic not subscribed")
+            return -2
         else:
-            if topics[topic_id]["msg_last_id"] > response[1]:
-                topics[topic_id]["msg_last_id"] = response[1]
-            logging.warning("Tried to send get command for inexistent message")
+            if (not response[1].isdigit()):
+                logging.error("Malformed error reply from server")
+                return -1
+            if topics[topic_id]["msg_last_id"] != int(response[1]):
+                topics[topic_id]["msg_last_id"] = int(response[1])
+                logging.warning(
+                    "Tried to send get command for inexistent message")
+                return -3
+            else:
+                logging.info('Topic "{%s}" is up to date', topic_id)
+                return 0
+    logging.error("Malformed error reply from server")
+    return -1
 
 
 def subscribe_msg(topic_id):
@@ -89,8 +101,12 @@ def subscribe_res(topic_id, response):
         to_update = {topic_id: {"msg_last_id": -1, "pub_count": 0}}
         topics.update(to_update)
         logging.info("Successful subscribe")
+        return 0
     elif response[0] == 'e':
         logging.warning("Tried to subscribe to an already subscribed topic")
+        return -2
+    logging.error("Malformed error reply from server")
+    return -1
 
 
 def unsubscribe_msg(topic_id):
@@ -101,13 +117,18 @@ def unsubscribe_res(topic_id, response):
     if response[0] == 'a':
         del topics[topic_id]
         logging.info("Successful unsubscribe")
+        return 0
     elif response[0] == 'e':
         logging.warning(
             "Tried to unsubscribe to an already unsubscribed topic")
+        return -2
+    logging.error("Malformed error reply from server")
+    return -1
 
 
 for sequence in itertools.count():
-    request = put_msg("news", "nothing new").encode()
+
+    request = get_msg("news").encode()
     logging.info("Sending (%s)", request)
     client.send(request)
 
@@ -115,17 +136,18 @@ for sequence in itertools.count():
     while True:
         if (client.poll(REQUEST_TIMEOUT) & zmq.POLLIN) != 0:
             reply = client.recv()
+            logging.info("Server response: {%s}", reply)
 
-            reply = reply.decode().split(maxsplit=3)
+            reply = reply.decode().split(maxsplit=2)
             if len(reply) == 0:
                 logging.error("Received empty reply from server")
                 continue
+            retries_left = REQUEST_RETRIES
             if reply[0] == "i":
                 logging.error("Server reported invalid request")
                 break
-            if (put_res("news", reply) == 0):
-                retries_left = REQUEST_RETRIES
-                break
+            get_res("news", reply)
+            break
 
         retries_left -= 1
         logging.warning("No response from server")
@@ -138,7 +160,11 @@ for sequence in itertools.count():
 
         logging.info("Reconnecting to server…")
         # Create new connection
+        context = zmq.Context()
         client = context.socket(zmq.REQ)
         client.connect(SERVER_ENDPOINT)
         logging.info("Resending (%s)", request)
         client.send(request)
+
+while True:
+    request = input("Enter request: ")

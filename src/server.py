@@ -14,11 +14,64 @@ server.bind("tcp://*:5555")
 
 topics = {
     "news": {
-        "messages": {0: {"author": "luke", "text": "the queen has finally died"}},
-        "msg_last_id": 0,
+        "messages": {0: {"author": "luke", "text": "the queen has finally died"}, 1: {"author": "mrs", "text": "there were only 400"}, 2: {"author": "zp", "text": "it's working"}},
+        "msg_last_id": 2,
         "subs": {"luke": 1, "ze": 0},
     },
 }
+
+def process_request(request):
+    invalid_response = "i"
+    operation = request.split(maxsplit=4)
+
+    if len(operation) == 0:
+        logging.warning("Invalid request")
+        return invalid_response
+
+    if operation[0] == "p":
+        if (len(operation) < 4):
+            logging.warning("Invalid put request, missing arguments")
+            return invalid_response
+        subscriber_id = operation[1]
+        topic_id = operation[2]
+        if not operation[3].isdigit():
+            logging.warning("Invalid put request, id not an int")
+            return invalid_response
+        count = int(operation[3])
+        text = operation[4]
+        return put(subscriber_id, topic_id, count, text)
+
+    if operation[0] == "g":
+        if (len(operation) < 4):
+            logging.warning("Invalid get request, missing arguments")
+            return invalid_response
+        subscriber_id = operation[1]
+        topic_id = operation[2]
+        if not operation[3].isdigit():
+            logging.warning("Invalid get request, id not an int")
+            return invalid_response
+        message_id = int(operation[3])
+        return get(subscriber_id, topic_id, message_id)
+
+    if operation[0] == "s":
+        if (len(operation) != 3):
+            logging.warning(
+                "Invalid subscribe request, wrong number of arguments")
+            return invalid_response
+        subscriber_id = operation[1]
+        topic_id = operation[2]
+        return subscribe(subscriber_id, topic_id)
+
+    if operation[0] == "u":
+        if (len(operation) != 3):
+            logging.warning(
+                "Invalid unsubscribe request, wrong number of arguments")
+            return invalid_response
+        subscriber_id = operation[1]
+        topic_id = operation[2]
+        return unsubscribe(subscriber_id, topic_id)
+
+    return invalid_response
 
 
 def put(subscriber_id, topic_id, count, text):
@@ -109,58 +162,6 @@ Message format:
 """
 
 
-def process_request(request):
-    invalid_response = "i"
-    operation = request.split(maxsplit=5)
-
-    if len(operation) == 0:
-        logging.warning("Invalid request")
-        return invalid_response
-
-    if operation[0] == "p":
-        if (len(operation) < 4):
-            logging.warning("Invalid put request, missing arguments")
-            return invalid_response
-        subscriber_id = operation[1]
-        topic_id = operation[2]
-        if not operation[3].isdigit():
-            logging.warning("Invalid put request, id not an int")
-            return invalid_response
-        count = int(operation[3])
-        text = operation[4]
-        return put(subscriber_id, topic_id, count, text)
-
-    if operation[0] == "g":
-        if (len(operation) < 4):
-            logging.warning("Invalid get request, missing arguments")
-            return invalid_response
-        subscriber_id = int(operation[1])
-        topic_id = operation[2]
-        if not operation[3].isdigit():
-            logging.warning("Invalid get request, id not an int")
-            return invalid_response
-        message_id = int(operation[3])
-        return get(subscriber_id, topic_id, message_id)
-
-    if operation[0] == "s":
-        if (len(operation) != 3):
-            logging.warning(
-                "Invalid subscribe request, wrong number of arguments")
-            return invalid_response
-        subscriber_id = operation[1]
-        topic_id = operation[2]
-        return subscribe(subscriber_id, topic_id)
-
-    if operation[0] == "u":
-        if (len(operation) != 3):
-            logging.warning(
-                "Invalid unsubscribe request, wrong number of arguments")
-            return invalid_response
-        subscriber_id = operation[1]
-        topic_id = operation[2]
-        return unsubscribe(subscriber_id, topic_id)
-
-    return invalid_response
 
 
 for cycles in itertools.count():
@@ -179,6 +180,7 @@ for cycles in itertools.count():
     time.sleep(1)  # Do some heavy work
 
     response = process_request(request.decode())
-    print(response)
 
+    time_stamp = time.time()
+    logging.info("Response ({%d}): {%s}", time_stamp, response)
     server.send(response.encode())
