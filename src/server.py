@@ -14,11 +14,13 @@ server.bind("tcp://*:5555")
 
 topics = {
     "news": {
-        "messages": {0: {"author": "luke", "text": "the queen has finally died"}, 1: {"author": "mrs", "text": "there were only 400"}, 2: {"author": "zp", "text": "it's working"}},
+        "messages": {0: {"publisher": "luke", "text": "the queen has finally died"}, 1: {"publisher": "mrs", "text": "there were only 400"}, 2: {"publisher": "zp", "text": "it's working"}},
         "msg_last_id": 2,
-        "subs": {"luke": 1, "ze": 0},
+        "pubs": {"luke": 1, "mrs": 1, "zp": 1},
+        "subs": {"luke": -1},
     },
 }
+
 
 def process_request(request):
     invalid_response = "i"
@@ -32,14 +34,14 @@ def process_request(request):
         if (len(operation) < 4):
             logging.warning("Invalid put request, missing arguments")
             return invalid_response
-        subscriber_id = operation[1]
+        publisher_id = operation[1]
         topic_id = operation[2]
         if not operation[3].isdigit():
             logging.warning("Invalid put request, id not an int")
             return invalid_response
         count = int(operation[3])
         text = operation[4]
-        return put(subscriber_id, topic_id, count, text)
+        return put(publisher_id, topic_id, count, text)
 
     if operation[0] == "g":
         if (len(operation) < 4):
@@ -74,22 +76,35 @@ def process_request(request):
     return invalid_response
 
 
-def put(subscriber_id, topic_id, count, text):
-    # Check if topic exists and the client is subscribed to it. Return ns error otherwise
-    if not (topic_id in topics.keys() and subscriber_id in topics[topic_id]["subs"].keys()):
-        return "e ns"
+def put(publisher_id, topic_id, count, text):
+    # Check if topic exists. Return ns error otherwise
+    if topic_id not in topics.keys():
+        topics[topic_id] = {
+            "messages": {},
+            "msg_last_id": -1,
+            "pubs": {publisher_id: 0},
+            "subs": {},
+        }
 
-    # Check if the client's count is bigger than the one registered. Return error with the registered counter otherwise
-    if (topics[topic_id]["subs"][subscriber_id] >= count):
-        return "e " + str(topics[topic_id]["subs"][subscriber_id])
+    if publisher_id not in topics[topic_id]["pubs"].keys():
+        topics[topic_id]["pubs"][publisher_id] = 0
+
+    # Check if the client's registered count is different than the one sent. Return error with the registered counter otherwise
+    if (topics[topic_id]["pubs"][publisher_id] + 1 != count):
+        return "e " + str(topics[topic_id]["pubs"][publisher_id])
+
+    topics[topic_id]["pubs"][publisher_id] = topics[topic_id]["pubs"][publisher_id] + 1
 
     # Post the message in the topic and return successfully
     next_id = topics[topic_id]["msg_last_id"] + 1
-    topics[topic_id]["messages"][next_id] = {
-        "author": subscriber_id, "text": text}
+    subscriber_count = len(topics[topic_id]["subs"])
+    if subscriber_count > 0:
+        topics[topic_id]["messages"][next_id] = {
+            "publisher": publisher_id,
+            "text": text
+        }
     topics[topic_id]["msg_last_id"] = next_id
-    topics[topic_id]["subs"][subscriber_id] = topics[topic_id]["subs"][subscriber_id] + 1
-    return "a"
+    return "a " + str(subscriber_count)
 
 
 def get(subscriber_id, topic_id, message_id):
@@ -97,9 +112,16 @@ def get(subscriber_id, topic_id, message_id):
     if not (topic_id in topics.keys() and subscriber_id in topics[topic_id]["subs"].keys()):
         return "e ns"
 
+    if message_id - 1 > topics[topic_id]["subs"][subscriber_id]:
+        topics[topic_id]["subs"][subscriber_id] = message_id - 1
+
     # Check if message requested exists. Return error with the latest message_id otherwise
     if message_id not in topics[topic_id]["messages"].keys():
         return "e " + str(topics[topic_id]["msg_last_id"])
+
+    min_msg_id = min(topics[topic_id]["messages"].keys())
+    if min(topics[topic_id]["subs"].values()) > min_msg_id:
+        topics[topic_id]["messages"].pop(min_msg_id)
 
     # Return successfully with the latest message_id and the requested message text
     return "a " + str(topics[topic_id]["msg_last_id"]) + " " + str(topics[topic_id]["messages"][message_id]["text"])
@@ -108,28 +130,32 @@ def get(subscriber_id, topic_id, message_id):
 def subscribe(subscriber_id, topic_id):
     # Check if topic exists and if not create new topic
     if (topic_id not in topics.keys()):
-        to_update = {topic_id: {"messages": {}, "msg_last_id": -1, "subs": {}}}
+        to_update = {topic_id: {"messages": {}, "msg_last_id": -
+                                1, "pubs": {}, "subs": {subscriber_id: -1}}}
         topics.update(to_update)
 
     # Check if already subscribed
     if (subscriber_id in topics[topic_id]["subs"].keys()):
-        # Return error? Or everything is fine? (I vote everything is fine -Fred)
         return "e as"
 
     # Subscribe to the topic
-    new_subs = {subscriber_id: 0}
-    topics[topic_id]["subs"].update(new_subs)
-    return "a"
+    topic_last_id = topics[topic_id]["msg_last_id"]
+    topics[topic_id]["subs"][subscriber_id] = topic_last_id
+    return "a " + str(topic_last_id)
 
 
 def unsubscribe(subscriber_id, topic_id):
-    # Check if it's subscribed
-    if (subscriber_id not in topics[topic_id]['subs'].keys()):
+    # Check if topic exists and if the client is subscribed
+    if not (topic_id in topics.keys() and subscriber_id in topics[topic_id]['subs'].keys()):
         return "e ns"
 
     # Unsubscribe
     topics[topic_id]['subs'].pop(subscriber_id)
-    # del topics[topic_id]['subs'][subscriber_id]
+
+    # Delete every message in the topic if it doesn't have subs
+    if len(topics[topic_id]["subs"]) == 0:
+        topics[topic_id]["messages"] = {}
+
     return "a"
 
 
@@ -137,9 +163,9 @@ def unsubscribe(subscriber_id, topic_id):
 Loop for receiving client messages
 Message format:
  Put:
- <- p <subscriber_id> <topic_id> <count> <text>
- -> a
- -> e <count>
+ <- p <publisher_id> <topic_id> <pub_count> <text>
+ -> a <subscribers_count>
+ -> e <pub_count>
  -> e ns
  
  Get:
@@ -150,7 +176,7 @@ Message format:
 
  Subscribe:
  <- s <subscriber_id> <topic_id>
- -> a
+ -> a <latest_topic_id>
  -> e as
 
  Unsubscribe:
@@ -160,8 +186,6 @@ Message format:
 
  -> i
 """
-
-
 
 
 for cycles in itertools.count():
@@ -182,5 +206,6 @@ for cycles in itertools.count():
     response = process_request(request.decode())
 
     time_stamp = time.time()
+    print(topics)
     logging.info("Response ({%d}): {%s}", time_stamp, response)
     server.send(response.encode())

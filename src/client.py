@@ -9,23 +9,12 @@ REQUEST_TIMEOUT = 2500
 REQUEST_RETRIES = 10
 SERVER_ENDPOINT = "tcp://localhost:5555"
 
-if __name__ == '__main__':
-    if len(sys.argv) == 2:
-        client_id = sys.argv[2]
-    else:
-        print("usage: python3 client.py <client_id>")
-
-context = zmq.Context()
-
-logging.info("Connecting to server…")
-client = context.socket(zmq.REQ)
-client.connect(SERVER_ENDPOINT)
 
 client_id = "luke"
 topics = {
     "news": {
         "msg_last_id": -1,
-        "pub_count": 0,
+        "pub_count": 1,
     },
     "football": {
         "msg_last_id": -1,
@@ -35,11 +24,14 @@ topics = {
 
 
 def put_msg(topic_id, text):
+    if topic_id not in topics.keys():
+        topics[topic_id] = {"msg_last_id": -2, "pub_count": 0}
     return "p {} {} {} {}".format(client_id, topic_id, topics[topic_id]["pub_count"] + 1, text)
 
 
 def put_res(topic_id, response):
     if response[0] == "a":
+
         topics[topic_id]["pub_count"] = topics[topic_id]["pub_count"] + 1
         return 0
     if response[0] == "e":
@@ -98,9 +90,13 @@ def subscribe_msg(topic_id):
 
 def subscribe_res(topic_id, response):
     if response[0] == 'a':
-        to_update = {topic_id: {"msg_last_id": -1, "pub_count": 0}}
-        topics.update(to_update)
-        logging.info("Successful subscribe")
+        if (len(response) != 2 or not response[1].isdigit()):
+            logging.error("Malformed error reply from server")
+            return -1
+        if topic_id not in topics.keys():
+            topics[topic_id] = {"pub_count": 0}
+        topics[topic_id]["msg_last_id"] = int(response[1])
+        logging.info("Successful subscribe. Last id: %s", response[1])
         return 0
     elif response[0] == 'e':
         logging.warning("Tried to subscribe to an already subscribed topic")
@@ -115,21 +111,83 @@ def unsubscribe_msg(topic_id):
 
 def unsubscribe_res(topic_id, response):
     if response[0] == 'a':
-        del topics[topic_id]
+        topics[topic_id]["message_last_id"] = -2
         logging.info("Successful unsubscribe")
         return 0
     elif response[0] == 'e':
         logging.warning(
-            "Tried to unsubscribe to an already unsubscribed topic")
+            "Tried to unsubscribe from an already unsubscribed topic")
         return -2
     logging.error("Malformed error reply from server")
     return -1
 
 
+def parse_user_input(input):
+    request = input.split(maxsplit=3)
+
+    if len(request) < 2:
+        logging.warning("[CLIENT] Invalid request")
+        return -1
+
+    cmd = request[0]
+    topic_id = request[1]
+
+    if cmd == "put":
+        if (len(request) < 3):
+            logging.warning("[CLIENT] Invalid put request, missing arguments")
+            return -1
+
+        text = ' '.join(request[2:len(request)])
+        req = put_msg(topic_id, text)
+
+    elif cmd == "get":
+        req = get_msg(topic_id)
+    elif cmd == "subscribe":
+        req = subscribe_msg(topic_id)
+    elif cmd == "unsubscribe":
+        req = unsubscribe_msg(topic_id)
+    return req
+
+
+def print_usage():
+    print(client_id)
+    print("Usage: \n Options:")
+    print("subscribe <topic_id>")
+    print("unsubscribe <topic_id>")
+    print("get <topic_id>")
+    print("put <topic_id> <text>")
+
+
+if __name__ == '__main__':
+
+    if len(sys.argv) != 2:
+        print("usage: python3 client.py <client_id>")
+        sys.exit()
+    client_id = sys.argv[1]
+
+    print_usage()
+    
+context = zmq.Context()
+logging.info("Connecting to server…")
+client = context.socket(zmq.REQ)
+client.connect(SERVER_ENDPOINT)
+
+
 for sequence in itertools.count():
 
-    request = get_msg("news").encode()
-    logging.info("Sending (%s)", request)
+    # command = input("Input request: ")
+    # # Deal with input
+    # request = parse_user_input(command)
+    # while request == -1:
+    #     print_usage()
+    #     command = input("Input request: ")
+    #     request = parse_user_input(command)
+
+    # logging.info("[CLIENT] Sending (%s)", request)
+    # client.send(request.encode())
+
+    request = unsubscribe_msg("news").encode()
+
     client.send(request)
 
     retries_left = REQUEST_RETRIES
@@ -146,7 +204,7 @@ for sequence in itertools.count():
             if reply[0] == "i":
                 logging.error("Server reported invalid request")
                 break
-            get_res("news", reply)
+            unsubscribe_res("news", reply)
             break
 
         retries_left -= 1
@@ -166,5 +224,3 @@ for sequence in itertools.count():
         logging.info("Resending (%s)", request)
         client.send(request)
 
-while True:
-    request = input("Enter request: ")
