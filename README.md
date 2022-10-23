@@ -8,3 +8,18 @@ Group members:
 2. Jose Frederico Gomes Ferreira Marques Rodrigues (up201807626@up.pt)
 3. Jose Pedro Peixoto Ferreira (up201904515@up.pt)
 4. Lucas Jorge Calvet de Magalhaes Fernandes Santos (201904517@up.pt)
+
+## Running
+
+### Server
+
+```
+python3 server.py
+```
+
+### Client
+
+```
+python3 client.py <client_id>
+```
+
