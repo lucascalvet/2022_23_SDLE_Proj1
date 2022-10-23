@@ -3,6 +3,7 @@ import logging
 import sys
 import zmq
 import json
+import os
 
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
@@ -26,12 +27,17 @@ topics ={}
 
 
 def updateJSON():
-    with open('mytopics.txt', 'w') as convert_file:
+    with open(client_id + '/mytopics.txt', 'w') as convert_file:
         convert_file.write(json.dumps(topics))
 
 def readJSON():
     global topics
-    with open('mytopics.txt') as json_file:
+    path = client_id
+    if not os.path.exists(path):
+        os.makedirs(path)
+        open(client_id + "/mytopics.txt", "w")
+
+    with open(client_id + '/mytopics.txt') as json_file:
         try:
             topics = json.load(json_file)
         except:
@@ -86,7 +92,7 @@ def get_res(topic_id, response):
                 "Tried to send get command for topic not subscribed")
             return -2
         else:
-            if (not response[1].isdigit()):
+            if (not response[1].isdigit() and response[1] != "-1"):
                 logging.error("Malformed error reply from server")
                 return -1
             if topics[topic_id]["msg_last_id"] != int(response[1]):
