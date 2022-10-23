@@ -3,7 +3,6 @@ import itertools
 import logging
 import time
 from urllib import response
-import sys
 import zmq
 import json
 
@@ -25,19 +24,18 @@ topics = {}
 
 
 def updateJSON():
-    with open('topics.txt', 'w') as convert_file:
+    with open('topics.json', 'w') as convert_file:
         convert_file.write(json.dumps(topics))
 
 
 def readJSON():
     global topics
-    with open('topics.txt') as json_file:
+    with open('topics.json') as json_file:
         try:
             topics = json.load(json_file)
         except:
             return
     
-
 
 def process_request(request):
     invalid_response = "i"
@@ -211,6 +209,7 @@ Message format:
 
 
 readJSON()
+print("Server started")
 for cycles in itertools.count():
     request = server.recv()
 
@@ -219,9 +218,10 @@ for cycles in itertools.count():
     #     logging.info("Simulating a crash")
     #     break
 
-    if cycles > 3 and randint(0, 3) == 0:
-        logging.info("Simulating CPU overload")
-        time.sleep(2)
+    # Simulate CPU overload, after a few cycles
+    # if cycles > 3 and randint(0, 3) == 0:
+    #     logging.info("Simulating CPU overload")
+    #     time.sleep(2)
 
     logging.info("Normal request (%s)", request)
     time.sleep(1)  # Do some heavy work

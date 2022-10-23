@@ -11,7 +11,6 @@ REQUEST_TIMEOUT = 2500
 REQUEST_RETRIES = 10
 SERVER_ENDPOINT = "tcp://localhost:5555"
 
-
 client_id = "luke"
 topics ={}
 # topics = {
@@ -27,7 +26,7 @@ topics ={}
 
 
 def updateJSON():
-    with open(client_id + '/mytopics.txt', 'w') as convert_file:
+    with open(client_id + '/mytopics.json', 'w') as convert_file:
         convert_file.write(json.dumps(topics))
 
 def readJSON():
@@ -35,9 +34,9 @@ def readJSON():
     path = client_id
     if not os.path.exists(path):
         os.makedirs(path)
-        open(client_id + "/mytopics.txt", "w")
+        open(client_id + "/mytopics.json", "w")
 
-    with open(client_id + '/mytopics.txt') as json_file:
+    with open(client_id + '/mytopics.json') as json_file:
         try:
             topics = json.load(json_file)
         except:
@@ -153,7 +152,7 @@ def parse_user_input(input):
 
     if len(request) < 2:
         logging.warning("[CLIENT] Invalid request")
-        return -1
+        return "", -1
 
     cmd = request[0]
     topic_id = request[1]
@@ -161,12 +160,15 @@ def parse_user_input(input):
     if cmd == "put":
         if (len(request) < 3):
             logging.warning("[CLIENT] Invalid put request, missing arguments")
-            return -1
+            return topic_id, -1
 
         text = ' '.join(request[2:len(request)])
         req = put_msg(topic_id, text)
 
     elif cmd == "get":
+        if topic_id not in topics:
+            logging.warning("[CLIENT] Invalid get request, topic not subscribed")
+            return topic_id, -1
         req = get_msg(topic_id)
     elif cmd == "subscribe":
         req = subscribe_msg(topic_id)
