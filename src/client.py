@@ -11,8 +11,8 @@ REQUEST_TIMEOUT = 2500
 REQUEST_RETRIES = 10
 SERVER_ENDPOINT = "tcp://localhost:5555"
 
-client_id = "luke"
-topics ={}
+client_id = "client"
+topics = {}
 # topics = {
 #     "news": {
 #         "msg_last_id": -1,
@@ -26,10 +26,13 @@ topics ={}
 
 
 def updateJSON():
+    """Write the topics information to a JSON file"""
     with open(client_id + '/mytopics.json', 'w') as convert_file:
         convert_file.write(json.dumps(topics))
 
+
 def readJSON():
+    """Read the topics information from a JSON file"""
     global topics
     path = client_id
     if not os.path.exists(path):
@@ -42,7 +45,9 @@ def readJSON():
         except:
             return
 
+
 def put_msg(topic_id, text):
+    """Given the topic and the text returns the Put request message"""
     if topic_id not in topics.keys():
         topics[topic_id] = {"msg_last_id": -2, "pub_count": 0}
         updateJSON()
@@ -50,6 +55,7 @@ def put_msg(topic_id, text):
 
 
 def put_res(topic_id, response):
+    """Process Server response to Put request"""
     if response[0] == "a":
         topics[topic_id]["pub_count"] = topics[topic_id]["pub_count"] + 1
         updateJSON()
@@ -65,7 +71,6 @@ def put_res(topic_id, response):
         if (not response[1].isdigit()):
             logging.error("Malformed error reply from server")
             return -1
-        # TODO: What to do here?
         logging.error("Put unsuccessful, count mismatch. Updating count")
         topics[topic_id]["pub_count"] = int(response[1])
         updateJSON()
@@ -75,10 +80,12 @@ def put_res(topic_id, response):
 
 
 def get_msg(topic_id):
+    """Given the topic returns the Get request message"""
     return "g {} {} {}".format(client_id, topic_id, topics[topic_id]["msg_last_id"] + 1)
 
 
 def get_res(topic_id, response):
+    """Process Server response to Get request"""
     if response[0] == 'a':
         topics[topic_id]["msg_last_id"] += 1
         updateJSON()
@@ -108,10 +115,12 @@ def get_res(topic_id, response):
 
 
 def subscribe_msg(topic_id):
+    """Given the topic returns the Subscribe request message"""
     return "s {} {}".format(client_id, topic_id)
 
 
 def subscribe_res(topic_id, response):
+    """Process Server response to Subscribe request"""
     if response[0] == 'a':
         if (len(response) != 2 or (not response[1].isdigit() and response[1] != "-1")):
             logging.error("Malformed error reply from server")
@@ -130,12 +139,14 @@ def subscribe_res(topic_id, response):
 
 
 def unsubscribe_msg(topic_id):
+    """Given the topic returns the Unsubscribe request message"""
     return "u {} {}".format(client_id, topic_id)
 
 
 def unsubscribe_res(topic_id, response):
+    """Process Server response to Unsubscribe request"""
     if response[0] == 'a':
-        topics[topic_id]["message_last_id"] = -2
+        topics[topic_id]["msg_last_id"] = -2
         updateJSON()
         logging.info("Successful unsubscribe")
         return 0
@@ -148,6 +159,7 @@ def unsubscribe_res(topic_id, response):
 
 
 def parse_user_input(input):
+    """Parses user input and returns the topic and request as a result. Request is -1 in case of an invalid input"""
     request = input.split(maxsplit=3)
 
     if len(request) < 2:
@@ -161,13 +173,13 @@ def parse_user_input(input):
         if (len(request) < 3):
             logging.warning("[CLIENT] Invalid put request, missing arguments")
             return topic_id, -1
-
         text = ' '.join(request[2:len(request)])
         req = put_msg(topic_id, text)
 
     elif cmd == "get":
         if topic_id not in topics:
-            logging.warning("[CLIENT] Invalid get request, topic not subscribed")
+            logging.warning(
+                "[CLIENT] Invalid get request, topic not subscribed")
             return topic_id, -1
         req = get_msg(topic_id)
     elif cmd == "subscribe":
@@ -178,6 +190,7 @@ def parse_user_input(input):
 
 
 def print_usage():
+    """Prints client commands usage"""
     print(client_id)
     print("Usage: \n Options:")
     print("subscribe <topic_id>")
@@ -186,6 +199,7 @@ def print_usage():
     print("put <topic_id> <text>")
 
 
+# Parse system arguments
 if __name__ == '__main__':
 
     if len(sys.argv) != 2:
@@ -201,22 +215,8 @@ logging.info("Connecting to server…")
 client = context.socket(zmq.REQ)
 client.connect(SERVER_ENDPOINT)
 
-
+# Client main loop
 for sequence in itertools.count():
-
-    # command = input("Input request: ")
-    # # Deal with input
-    # request = parse_user_input(command)
-    # while request == -1:
-    #     print_usage()
-    #     command = input("Input request: ")
-    #     request = parse_user_input(command)
-
-    # logging.info("[CLIENT] Sending (%s)", request)
-    # client.send(request.encode())
-
-    #request = unsubscribe_msg("news").encode()
-
     command = input("Input request: ")
     # Deal with input
     topic, request = parse_user_input(command)
@@ -225,6 +225,7 @@ for sequence in itertools.count():
         command = input("Input request: ")
         topic, request = parse_user_input(command)
 
+    logging.info("[CLIENT] Sending (%s)", request)
     client.send(request.encode())
 
     retries_left = REQUEST_RETRIES
@@ -274,6 +275,5 @@ for sequence in itertools.count():
             command = input("Input request: ")
             topic, request = parse_user_input(command)
 
+        logging.info("[CLIENT] Sending (%s)", request)
         client.send(request.encode())
-        #client.send(request)
-
