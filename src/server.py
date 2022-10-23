@@ -5,6 +5,7 @@ import time
 from urllib import response
 import sys
 import zmq
+import json
 
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
@@ -12,14 +13,30 @@ context = zmq.Context()
 server = context.socket(zmq.REP)
 server.bind("tcp://*:5555")
 
-topics = {
-    "news": {
-        "messages": {0: {"publisher": "luke", "text": "the queen has finally died"}, 1: {"publisher": "mrs", "text": "there were only 400"}, 2: {"publisher": "zp", "text": "it's working"}},
-        "msg_last_id": 2,
-        "pubs": {"luke": 1, "mrs": 1, "zp": 1},
-        "subs": {"luke": -1},
-    },
-}
+topics = {}
+# topics = {
+#     "news": {
+#         "messages": {0: {"publisher": "luke", "text": "the queen has finally died"}, 1: {"publisher": "mrs", "text": "there were only 400"}, 2: {"publisher": "zp", "text": "it's working"}},
+#         "msg_last_id": 2,
+#         "pubs": {"luke": 1, "mrs": 1, "zp": 1},
+#         "subs": {"luke": -1},
+#     },
+# }
+
+
+def updateJSON():
+    with open('topics.txt', 'w') as convert_file:
+        convert_file.write(json.dumps(topics))
+
+
+def readJSON():
+    global topics
+    with open('topics.txt') as json_file:
+        try:
+            topics = json.load(json_file)
+        except:
+            return
+    
 
 
 def process_request(request):
@@ -104,6 +121,7 @@ def put(publisher_id, topic_id, count, text):
             "text": text
         }
     topics[topic_id]["msg_last_id"] = next_id
+    updateJSON()
     return "a " + str(subscriber_count)
 
 
@@ -124,6 +142,7 @@ def get(subscriber_id, topic_id, message_id):
         topics[topic_id]["messages"].pop(min_msg_id)
 
     # Return successfully with the latest message_id and the requested message text
+    updateJSON()
     return "a " + str(topics[topic_id]["msg_last_id"]) + " " + str(topics[topic_id]["messages"][message_id]["text"])
 
 
@@ -133,6 +152,7 @@ def subscribe(subscriber_id, topic_id):
         to_update = {topic_id: {"messages": {}, "msg_last_id": -
                                 1, "pubs": {}, "subs": {subscriber_id: -1}}}
         topics.update(to_update)
+        return "a " + str(-1)
 
     # Check if already subscribed
     if (subscriber_id in topics[topic_id]["subs"].keys()):
@@ -141,6 +161,7 @@ def subscribe(subscriber_id, topic_id):
     # Subscribe to the topic
     topic_last_id = topics[topic_id]["msg_last_id"]
     topics[topic_id]["subs"][subscriber_id] = topic_last_id
+    updateJSON()
     return "a " + str(topic_last_id)
 
 
@@ -156,6 +177,7 @@ def unsubscribe(subscriber_id, topic_id):
     if len(topics[topic_id]["subs"]) == 0:
         topics[topic_id]["messages"] = {}
 
+    updateJSON()
     return "a"
 
 
@@ -167,7 +189,7 @@ Message format:
  -> a <subscribers_count>
  -> e <pub_count>
  -> e ns
- 
+
  Get:
  <- g <subscriber_id> <topic_id> <message_id>
  -> a <latest_topic_id> <message_text>
@@ -188,6 +210,7 @@ Message format:
 """
 
 
+readJSON()
 for cycles in itertools.count():
     request = server.recv()
 

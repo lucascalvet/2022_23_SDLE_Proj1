@@ -2,6 +2,7 @@ import itertools
 import logging
 import sys
 import zmq
+import json
 
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
@@ -11,28 +12,42 @@ SERVER_ENDPOINT = "tcp://localhost:5555"
 
 
 client_id = "luke"
-topics = {
-    "news": {
-        "msg_last_id": -1,
-        "pub_count": 1,
-    },
-    "football": {
-        "msg_last_id": -1,
-        "pub_count": 0,
-    },
-}
+topics ={}
+# topics = {
+#     "news": {
+#         "msg_last_id": -1,
+#         "pub_count": 1,
+#     },
+#     "football": {
+#         "msg_last_id": -1,
+#         "pub_count": 0,
+#     },
+# }
 
+
+def updateJSON():
+    with open('mytopics.txt', 'w') as convert_file:
+        convert_file.write(json.dumps(topics))
+
+def readJSON():
+    global topics
+    with open('mytopics.txt') as json_file:
+        try:
+            topics = json.load(json_file)
+        except:
+            return
 
 def put_msg(topic_id, text):
     if topic_id not in topics.keys():
         topics[topic_id] = {"msg_last_id": -2, "pub_count": 0}
+        updateJSON()
     return "p {} {} {} {}".format(client_id, topic_id, topics[topic_id]["pub_count"] + 1, text)
 
 
 def put_res(topic_id, response):
     if response[0] == "a":
-
         topics[topic_id]["pub_count"] = topics[topic_id]["pub_count"] + 1
+        updateJSON()
         return 0
     if response[0] == "e":
         if (len(response) != 2):
@@ -48,6 +63,7 @@ def put_res(topic_id, response):
         # TODO: What to do here?
         logging.error("Put unsuccessful, count mismatch. Updating count")
         topics[topic_id]["pub_count"] = int(response[1])
+        updateJSON()
         return -3
     logging.error("Malformed reply from server: %s", ' '.join(response))
     return -1
@@ -60,6 +76,7 @@ def get_msg(topic_id):
 def get_res(topic_id, response):
     if response[0] == 'a':
         topics[topic_id]["msg_last_id"] += 1
+        updateJSON()
         logging.info("Successful get")
         print("Message: " + response[2])
         return 0
@@ -74,6 +91,7 @@ def get_res(topic_id, response):
                 return -1
             if topics[topic_id]["msg_last_id"] != int(response[1]):
                 topics[topic_id]["msg_last_id"] = int(response[1])
+                updateJSON()
                 logging.warning(
                     "Tried to send get command for inexistent message")
                 return -3
@@ -90,12 +108,13 @@ def subscribe_msg(topic_id):
 
 def subscribe_res(topic_id, response):
     if response[0] == 'a':
-        if (len(response) != 2 or not response[1].isdigit()):
+        if (len(response) != 2 or (not response[1].isdigit() and response[1] != "-1")):
             logging.error("Malformed error reply from server")
             return -1
         if topic_id not in topics.keys():
             topics[topic_id] = {"pub_count": 0}
         topics[topic_id]["msg_last_id"] = int(response[1])
+        updateJSON()
         logging.info("Successful subscribe. Last id: %s", response[1])
         return 0
     elif response[0] == 'e':
@@ -112,6 +131,7 @@ def unsubscribe_msg(topic_id):
 def unsubscribe_res(topic_id, response):
     if response[0] == 'a':
         topics[topic_id]["message_last_id"] = -2
+        updateJSON()
         logging.info("Successful unsubscribe")
         return 0
     elif response[0] == 'e':
@@ -146,7 +166,7 @@ def parse_user_input(input):
         req = subscribe_msg(topic_id)
     elif cmd == "unsubscribe":
         req = unsubscribe_msg(topic_id)
-    return req
+    return topic_id, req
 
 
 def print_usage():
@@ -166,7 +186,8 @@ if __name__ == '__main__':
     client_id = sys.argv[1]
 
     print_usage()
-    
+
+readJSON()
 context = zmq.Context()
 logging.info("Connecting to server…")
 client = context.socket(zmq.REQ)
@@ -186,9 +207,17 @@ for sequence in itertools.count():
     # logging.info("[CLIENT] Sending (%s)", request)
     # client.send(request.encode())
 
-    request = unsubscribe_msg("news").encode()
+    #request = unsubscribe_msg("news").encode()
 
-    client.send(request)
+    command = input("Input request: ")
+    # Deal with input
+    topic, request = parse_user_input(command)
+    while request == -1:
+        print_usage()
+        command = input("Input request: ")
+        topic, request = parse_user_input(command)
+
+    client.send(request.encode())
 
     retries_left = REQUEST_RETRIES
     while True:
@@ -204,7 +233,14 @@ for sequence in itertools.count():
             if reply[0] == "i":
                 logging.error("Server reported invalid request")
                 break
-            unsubscribe_res("news", reply)
+            if request[0] == 'p':
+                put_res(topic, reply)
+            elif request[0] == 'g':
+                get_res(topic, reply)
+            elif request[0] == 's':
+                subscribe_res(topic, reply)
+            elif request[0] == 'u':
+                unsubscribe_res(topic, reply)
             break
 
         retries_left -= 1
@@ -222,5 +258,14 @@ for sequence in itertools.count():
         client = context.socket(zmq.REQ)
         client.connect(SERVER_ENDPOINT)
         logging.info("Resending (%s)", request)
-        client.send(request)
+        command = input("Input request: ")
+        # Deal with input
+        topic, request = parse_user_input(command)
+        while request == -1:
+            print_usage()
+            command = input("Input request: ")
+            topic, request = parse_user_input(command)
+
+        client.send(request.encode())
+        #client.send(request)
 
