@@ -267,13 +267,4 @@ for sequence in itertools.count():
         client = context.socket(zmq.REQ)
         client.connect(SERVER_ENDPOINT)
         logging.info("Resending (%s)", request)
-        command = input("Input request: ")
-        # Deal with input
-        topic, request = parse_user_input(command)
-        while request == -1:
-            print_usage()
-            command = input("Input request: ")
-            topic, request = parse_user_input(command)
-
-        logging.info("[CLIENT] Sending (%s)", request)
         client.send(request.encode())
